@@ -1,5 +1,4 @@
 use std::iter::Peekable;
-
 use anyhow::Result;
 
 use crate::{instruction::Instruction, memory::Address};
@@ -22,6 +21,81 @@ where
     Ok(disassembly)
 }
 
+macro_rules! decode_arithmetic_binop_register_to_either {
+    ($bytes:expr, $variant:ident) => {{
+        let (_, byte1) = $bytes.try_next()?;
+        let d = (byte1 & 0b00000010) >> 1;
+        let w = byte1 & 0b00000001;
+
+        let [dst, src] = Operand::from_mod_reg_rm(d, w, $bytes)?;
+
+        Ok(Instruction::$variant { dst, src })
+    }};
+}
+
+macro_rules! decode_arithmetic_binop_immediate_to_register_memory {
+    ($bytes:expr, { $($pattern:expr => $variant:ident),+ $(,)? }) => {{
+        let (_, byte1) = $bytes.try_next()?;
+        let (_, mod_rm) = $bytes.try_next()?;
+
+        let s = (byte1 & 0b00000010) >> 1;
+        let w = byte1 & 0b00000001;
+
+        let dst = Operand::from_mod_rm(w, mod_rm, $bytes)?;
+
+        let src = if w == 0
+        {
+            let (_address, data) = $bytes.try_next()?;
+            Operand::Immediate8(data)
+        } else if s == 0 {
+            let (_address, data_lo) = $bytes.try_next()?;
+            let (_address, data_hi) = $bytes.try_next()?;
+            Operand::Immediate16(((data_hi as u16) << 8) | data_lo as u16)
+        } else {
+            let (_address, data_lo) = $bytes.try_next()?;
+            Operand::Immediate16(((0u16) << 8) | data_lo as u16)
+        };
+
+        match (mod_rm & 0b00111000) {
+            $(
+                $pattern => Ok(Instruction::$variant { dst, src }),
+            )*
+            _ => unreachable!()
+        }
+    }};
+}
+
+macro_rules! decode_arithmetic_binop_immediate_to_accumulator {
+    ($bytes:expr, $variant:ident) => {{
+        let (_, byte1) = $bytes.try_next()?;
+        let w = byte1 & 0b00000001;
+
+        let dst =
+            if w == 0 { Operand::Register(Register::Al) } else { Operand::Register(Register::Ax) };
+
+        let src = if w == 0
+        {
+            let (_address, data) = $bytes.try_next()?;
+            Operand::Immediate8(data)
+        } else {
+            let (_address, data_lo) = $bytes.try_next()?;
+            let (_address, data_hi) = $bytes.try_next()?;
+            Operand::Immediate16(((data_hi as u16) << 8) | data_lo as u16)
+        };
+
+        Ok(Instruction::$variant { dst, src })
+    }};
+}
+
+macro_rules! decode_jump {
+    ($bytes:expr, $variant:ident) => {{
+        $bytes.try_next()?;
+        let (_, ip_increment) = $bytes.try_next()?;
+
+        Ok(Instruction::$variant { ip_increment })
+    }};
+}
+
 pub fn decode_instruction<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
 where
     T: Iterator<Item=(Address, u8)>,
@@ -37,6 +111,38 @@ where
         0b1100_0110..=0b1100_0111 => decode_mov_immediate_to_reg_mem(bytes),
         0b1010_0000..=0b1010_0001 => decode_mem_to_accumulator(bytes),
         0b1010_0010..=0b1010_0011 => decode_accumulator_to_mem(bytes),
+
+        0b0000_0000..=0b0000_0011 => decode_arithmetic_binop_register_to_either!(bytes, Add),
+        0b0010_1000..=0b0010_1011 => decode_arithmetic_binop_register_to_either!(bytes, Sub),
+        0b0011_1000..=0b0011_1011 => decode_arithmetic_binop_register_to_either!(bytes, Cmp),
+        0b1000_0000..=0b1000_0011 => decode_arithmetic_binop_immediate_to_register_memory!(
+            bytes,
+            {
+                0b0000_0000 => Add,
+                0b0010_1000 => Sub,
+                0b0011_1000 => Cmp,
+            }
+        ),
+        0b0000_0100..=0b0000_0111 => decode_arithmetic_binop_immediate_to_accumulator!(bytes, Add),
+        0b0010_1100..=0b0010_1111 => decode_arithmetic_binop_immediate_to_accumulator!(bytes, Sub),
+        0b0011_1100..=0b0011_1111 => decode_arithmetic_binop_immediate_to_accumulator!(bytes, Cmp),
+
+        0b0111_0100 => decode_jump!(bytes, Je),
+        0b0111_1100 => decode_jump!(bytes, Jl),
+        0b0111_1110 => decode_jump!(bytes, Jle),
+        0b0111_0010 => decode_jump!(bytes, Jb),
+        0b0111_0110 => decode_jump!(bytes, Jbe),
+        0b0111_1010 => decode_jump!(bytes, Jp),
+        0b0111_0000 => decode_jump!(bytes, Jo),
+        0b0111_1000 => decode_jump!(bytes, Js),
+        0b0111_0101 => decode_jump!(bytes, Jne),
+        0b0111_1101 => decode_jump!(bytes, Jnl),
+        0b0111_1111 => decode_jump!(bytes, Jnle),
+        0b0111_0011 => decode_jump!(bytes, Jnb),
+        0b0111_0111 => decode_jump!(bytes, Jnbe),
+        0b0111_1011 => decode_jump!(bytes, Jnp),
+        0b0111_0001 => decode_jump!(bytes, Jno),
+
         _ => Err(crate::error::Error::UnknownInstruction(byte, address).into()),
     }
 }
