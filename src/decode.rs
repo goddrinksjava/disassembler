@@ -1,23 +1,67 @@
-use std::iter::Peekable;
 use anyhow::Result;
+use std::collections::BTreeMap;
+use std::iter::Peekable;
 
-use crate::{instruction::Instruction, memory::Address};
-use crate::memory::{Displacement, Memory};
 use crate::memory::Displacement::{Disp16, Disp8};
+use crate::memory::{Displacement, Memory};
 use crate::operand::Operand;
 use crate::register::Register;
+use crate::{instruction::Instruction, memory::Address};
 
 pub fn disassemble<T>(bytes: &mut Peekable<T>) -> Result<String>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let mut disassembly = String::new();
     disassembly.push_str("bits 16\n\n");
 
-    while bytes.peek().is_some() {
+    let mut instructions = Vec::new();
+    let mut label_addresses = BTreeMap::new();
+
+    while let Some((addr, _)) = bytes.peek().cloned() {
         let instruction = decode_instruction(bytes)?;
-        disassembly.push_str(&(instruction.to_string() + "\n"))
+
+        if let Some(jmp) = instruction.to_jump() {
+            let byte_count = jmp.ip_increment() + jmp.len();
+
+            let label_address = Address(
+                (addr.0 as i32)
+                    .checked_add(byte_count as i32)
+                    .expect("Overflow when adding") as u16,
+            );
+
+            if !label_addresses.contains_key(&label_address) {
+                label_addresses.insert(label_address, label_addresses.len() as u16);
+            }
+        }
+
+        instructions.push((addr, instruction));
     }
+
+    for (address, instruction) in instructions {
+        if let Some(label_index) = label_addresses.get(&address) {
+            disassembly.push_str(&format!("label{label_index}:\n"));
+        }
+
+        if let Some(jmp) = instruction.to_jump() {
+            let byte_count = jmp.ip_increment() + jmp.len();
+
+            let target = Address(
+                (address.0 as i32)
+                    .checked_add(byte_count as i32)
+                    .expect("Overflow when adding") as u16,
+            );
+
+            let label_index = label_addresses
+                .get(&target)
+                .expect("The address of the label should be present in label_addresses");
+
+            disassembly.push_str(&(format!("{jmp} label{label_index}") + "\n"))
+        } else {
+            disassembly.push_str(&(instruction.to_string() + "\n"))
+        }
+    }
+
     Ok(disassembly)
 }
 
@@ -70,11 +114,13 @@ macro_rules! decode_arithmetic_binop_immediate_to_accumulator {
         let (_, byte1) = $bytes.try_next()?;
         let w = byte1 & 0b00000001;
 
-        let dst =
-            if w == 0 { Operand::Register(Register::Al) } else { Operand::Register(Register::Ax) };
+        let dst = if w == 0 {
+            Operand::Register(Register::Al)
+        } else {
+            Operand::Register(Register::Ax)
+        };
 
-        let src = if w == 0
-        {
+        let src = if w == 0 {
             let (_address, data) = $bytes.try_next()?;
             Operand::Immediate8(data)
         } else {
@@ -98,7 +144,7 @@ macro_rules! decode_jump {
 
 pub fn decode_instruction<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let (address, byte) = bytes
         .peek()
@@ -142,6 +188,11 @@ where
         0b0111_0111 => decode_jump!(bytes, Jnbe),
         0b0111_1011 => decode_jump!(bytes, Jnp),
         0b0111_0001 => decode_jump!(bytes, Jno),
+        0b0111_1001 => decode_jump!(bytes, Jns),
+        0b1110_0010 => decode_jump!(bytes, Loop),
+        0b1110_0001 => decode_jump!(bytes, Loopz),
+        0b1110_0000 => decode_jump!(bytes, Loopnz),
+        0b1110_0011 => decode_jump!(bytes, Jcxz),
 
         _ => Err(crate::error::Error::UnknownInstruction(byte, address).into()),
     }
@@ -149,21 +200,18 @@ where
 
 fn decode_mov_immediate_to_reg_mem<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let (_address1, byte1) = bytes.try_next()?;
     let w = byte1 & 0b00000001;
 
     let [dst, src] = Operand::immediate(w, bytes)?;
-    Ok(Instruction::Mov {
-        dst,
-        src,
-    })
+    Ok(Instruction::Mov { dst, src })
 }
 
 fn decode_mov_immediate_to_reg<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let (_address1, byte1) = bytes.try_next()?;
 
@@ -189,7 +237,7 @@ where
 
 fn decode_mov_register_memory<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let (_address1, byte1) = bytes.try_next()?;
 
@@ -203,56 +251,61 @@ where
 
 fn decode_mem_to_accumulator<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let (reg, displacement) = decode_accumulator_and_mem(bytes)?;
 
     Ok(Instruction::Mov {
         dst: Operand::Register(reg),
-        src: Operand::Memory(Memory { displacement, registers: [None, None] }),
+        src: Operand::Memory(Memory {
+            displacement,
+            registers: [None, None],
+        }),
     })
 }
 
 fn decode_accumulator_to_mem<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let (reg, displacement) = decode_accumulator_and_mem(bytes)?;
 
     Ok(Instruction::Mov {
-        dst: Operand::Memory(Memory { displacement, registers: [None, None] }),
+        dst: Operand::Memory(Memory {
+            displacement,
+            registers: [None, None],
+        }),
         src: Operand::Register(reg),
     })
 }
 
-
 fn decode_accumulator_and_mem<T>(bytes: &mut Peekable<T>) -> Result<(Register, Displacement)>
 where
-    T: Iterator<Item=(Address, u8)>,
+    T: Iterator<Item = (Address, u8)>,
 {
     let (_address1, byte1) = bytes.try_next()?;
     let w = byte1 & 0b00000001;
 
-    if w == 0
-    {
+    if w == 0 {
         let (_address, data) = bytes.try_next()?;
         Ok((Register::Al, Disp8(data)))
     } else {
         let (_address, data_lo) = bytes.try_next()?;
         let (_address, data_hi) = bytes.try_next()?;
-        Ok(
-            (Register::Ax, Disp16(((data_hi as u16) << 8) | data_lo as u16))
-        )
+        Ok((
+            Register::Ax,
+            Disp16(((data_hi as u16) << 8) | data_lo as u16),
+        ))
     }
 }
 
-pub trait AddressByteIteratorExt: Iterator<Item=(Address, u8)> {
+pub trait AddressByteIteratorExt: Iterator<Item = (Address, u8)> {
     fn try_next(&mut self) -> Result<(Address, u8), crate::error::Error>;
 }
 
 impl<I> AddressByteIteratorExt for I
 where
-    I: Iterator<Item=(Address, u8)>,
+    I: Iterator<Item = (Address, u8)>,
 {
     fn try_next(&mut self) -> Result<(Address, u8), crate::error::Error> {
         self.next()
@@ -283,7 +336,7 @@ mod tests {
                         io::ErrorKind::Other,
                         format!("Error disassembling {}", asm_file),
                     )
-                        .into());
+                    .into());
                 }
             };
             let reassembled_bin = match assemble_from_string(&disassembled_output) {
@@ -294,7 +347,7 @@ mod tests {
                         io::ErrorKind::Other,
                         format!("Error assembling {}", asm_file),
                     )
-                        .into());
+                    .into());
                 }
             };
 
@@ -304,7 +357,7 @@ mod tests {
                     io::ErrorKind::Other,
                     format!("Binaries do not match for file {}", asm_file),
                 )
-                    .into());
+                .into());
             }
         }
 

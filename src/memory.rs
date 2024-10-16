@@ -1,8 +1,8 @@
-use std::fmt::Formatter;
 use crate::register::Register;
+use std::fmt::Formatter;
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Address(pub u16);
 
 pub struct Memory {
@@ -23,13 +23,11 @@ impl std::fmt::Display for Memory {
         let mut s = String::new();
         let mut flag = false;
 
-        if let Some(reg) = &self.registers[0]
-        {
+        if let Some(reg) = &self.registers[0] {
             s.push_str(&reg.to_string());
             flag = true;
         }
-        if let Some(reg) = &self.registers[1]
-        {
+        if let Some(reg) = &self.registers[1] {
             if flag {
                 s.push_str(" + ");
             }
