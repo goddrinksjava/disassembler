@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::collections::BTreeMap;
-use std::iter::Peekable;
 
 use crate::memory::Displacement::{Disp16, Disp8};
 use crate::memory::{Displacement, Memory};
@@ -8,18 +7,20 @@ use crate::operand::Operand;
 use crate::register::Register;
 use crate::{instruction::Instruction, memory::Address};
 
-pub fn disassemble<T>(bytes: &mut Peekable<T>) -> Result<String>
+pub fn disassemble<T>(bytes: &mut T) -> Result<String>
 where
     T: Iterator<Item = (Address, u8)>,
 {
+    let mut bytes = CountingPeekable::new(bytes);
+
     let mut disassembly = String::new();
     disassembly.push_str("bits 16\n\n");
 
     let mut instructions = Vec::new();
     let mut label_addresses = BTreeMap::new();
 
-    while let Some((addr, _)) = bytes.peek().cloned() {
-        let instruction = decode_instruction(bytes)?;
+    while let Some((addr, _byte)) = bytes.peek().cloned() {
+        let instruction = decode_instruction(&mut bytes)?;
 
         if let Some(jmp) = instruction.to_jump() {
             let byte_count = jmp.ip_increment() + jmp.len();
@@ -73,7 +74,11 @@ macro_rules! decode_arithmetic_binop_register_to_either {
 
         let [dst, src] = Operand::from_mod_reg_rm(d, w, $bytes)?;
 
-        Ok(Instruction::$variant { dst, src })
+        Ok(Instruction::$variant {
+            sz: $bytes.get_count() as u8,
+            dst,
+            src,
+        })
     }};
 }
 
@@ -102,7 +107,7 @@ macro_rules! decode_arithmetic_binop_immediate_to_register_memory {
 
         match (mod_rm & 0b00111000) {
             $(
-                $pattern => Ok(Instruction::$variant { dst, src }),
+                $pattern => Ok(Instruction::$variant { sz: $bytes.get_count() as u8, dst, src }),
             )*
             _ => unreachable!()
         }
@@ -129,7 +134,11 @@ macro_rules! decode_arithmetic_binop_immediate_to_accumulator {
             Operand::Immediate16(((data_hi as u16) << 8) | data_lo as u16)
         };
 
-        Ok(Instruction::$variant { dst, src })
+        Ok(Instruction::$variant {
+            sz: $bytes.get_count() as u8,
+            dst,
+            src,
+        })
     }};
 }
 
@@ -138,14 +147,19 @@ macro_rules! decode_jump {
         $bytes.try_next()?;
         let (_, ip_increment) = $bytes.try_next()?;
 
-        Ok(Instruction::$variant { ip_increment })
+        Ok(Instruction::$variant {
+            sz: $bytes.get_count() as u8,
+            ip_increment,
+        })
     }};
 }
 
-pub fn decode_instruction<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
+pub fn decode_instruction<T>(bytes: &mut CountingPeekable<T>) -> Result<Instruction>
 where
     T: Iterator<Item = (Address, u8)>,
 {
+    bytes.reset_count();
+
     let (address, byte) = bytes
         .peek()
         .cloned()
@@ -169,9 +183,15 @@ where
                 0b0011_1000 => Cmp,
             }
         ),
-        0b0000_0100..=0b0000_0111 => decode_arithmetic_binop_immediate_to_accumulator!(bytes, Add),
-        0b0010_1100..=0b0010_1111 => decode_arithmetic_binop_immediate_to_accumulator!(bytes, Sub),
-        0b0011_1100..=0b0011_1111 => decode_arithmetic_binop_immediate_to_accumulator!(bytes, Cmp),
+        0b0000_0100..=0b0000_0111 => {
+            decode_arithmetic_binop_immediate_to_accumulator!(bytes, Add)
+        }
+        0b0010_1100..=0b0010_1111 => {
+            decode_arithmetic_binop_immediate_to_accumulator!(bytes, Sub)
+        }
+        0b0011_1100..=0b0011_1111 => {
+            decode_arithmetic_binop_immediate_to_accumulator!(bytes, Cmp)
+        }
 
         0b0111_0100 => decode_jump!(bytes, Je),
         0b0111_1100 => decode_jump!(bytes, Jl),
@@ -198,7 +218,7 @@ where
     }
 }
 
-fn decode_mov_immediate_to_reg_mem<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
+fn decode_mov_immediate_to_reg_mem<T>(bytes: &mut CountingPeekable<T>) -> Result<Instruction>
 where
     T: Iterator<Item = (Address, u8)>,
 {
@@ -206,10 +226,14 @@ where
     let w = byte1 & 0b00000001;
 
     let [dst, src] = Operand::immediate(w, bytes)?;
-    Ok(Instruction::Mov { dst, src })
+    Ok(Instruction::Mov {
+        sz: bytes.get_count() as u8,
+        dst,
+        src,
+    })
 }
 
-fn decode_mov_immediate_to_reg<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
+fn decode_mov_immediate_to_reg<T>(bytes: &mut CountingPeekable<T>) -> Result<Instruction>
 where
     T: Iterator<Item = (Address, u8)>,
 {
@@ -222,6 +246,7 @@ where
 
     if w == 0 {
         Ok(Instruction::Mov {
+            sz: bytes.get_count() as u8,
             dst: Operand::Register(Register::decode_reg(reg, w)),
             src: Operand::Immediate8(byte2),
         })
@@ -229,13 +254,14 @@ where
         let (_address3, byte3) = bytes.try_next()?;
 
         Ok(Instruction::Mov {
+            sz: bytes.get_count() as u8,
             dst: Operand::Register(Register::decode_reg(reg, w)),
             src: Operand::Immediate16(((byte3 as u16) << 8) | byte2 as u16),
         })
     }
 }
 
-fn decode_mov_register_memory<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
+fn decode_mov_register_memory<T>(bytes: &mut CountingPeekable<T>) -> Result<Instruction>
 where
     T: Iterator<Item = (Address, u8)>,
 {
@@ -246,16 +272,21 @@ where
 
     let [dst, src] = Operand::from_mod_reg_rm(d, w, bytes)?;
 
-    Ok(Instruction::Mov { dst, src })
+    Ok(Instruction::Mov {
+        sz: bytes.get_count() as u8,
+        dst,
+        src,
+    })
 }
 
-fn decode_mem_to_accumulator<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
+fn decode_mem_to_accumulator<T>(bytes: &mut CountingPeekable<T>) -> Result<Instruction>
 where
     T: Iterator<Item = (Address, u8)>,
 {
     let (reg, displacement) = decode_accumulator_and_mem(bytes)?;
 
     Ok(Instruction::Mov {
+        sz: bytes.get_count() as u8,
         dst: Operand::Register(reg),
         src: Operand::Memory(Memory {
             displacement,
@@ -264,13 +295,14 @@ where
     })
 }
 
-fn decode_accumulator_to_mem<T>(bytes: &mut Peekable<T>) -> Result<Instruction>
+fn decode_accumulator_to_mem<T>(bytes: &mut CountingPeekable<T>) -> Result<Instruction>
 where
     T: Iterator<Item = (Address, u8)>,
 {
     let (reg, displacement) = decode_accumulator_and_mem(bytes)?;
 
     Ok(Instruction::Mov {
+        sz: bytes.get_count() as u8,
         dst: Operand::Memory(Memory {
             displacement,
             registers: [None, None],
@@ -279,7 +311,9 @@ where
     })
 }
 
-fn decode_accumulator_and_mem<T>(bytes: &mut Peekable<T>) -> Result<(Register, Displacement)>
+fn decode_accumulator_and_mem<T>(
+    bytes: &mut CountingPeekable<T>,
+) -> Result<(Register, Displacement)>
 where
     T: Iterator<Item = (Address, u8)>,
 {
@@ -310,6 +344,59 @@ where
     fn try_next(&mut self) -> Result<(Address, u8), crate::error::Error> {
         self.next()
             .ok_or(crate::error::Error::EndOfInstructionStream())
+    }
+}
+
+pub(crate) struct CountingPeekable<I: std::iter::Iterator> {
+    iter: I,
+    counter: usize,
+    peeked: Option<Option<I::Item>>,
+}
+
+impl<I, IT> Iterator for CountingPeekable<I>
+where
+    I: std::iter::Iterator<Item = IT>,
+    IT: Clone,
+{
+    type Item = IT;
+
+    fn next(&mut self) -> Option<I::Item> {
+        let item = match self.peeked.take() {
+            Some(v) => v,
+            None => self.iter.next(),
+        };
+
+        if item.is_some() {
+            self.counter += 1;
+        }
+
+        item
+    }
+}
+
+impl<I> CountingPeekable<I>
+where
+    I: std::iter::Iterator,
+    I::Item: Clone,
+{
+    pub(crate) fn new(iter: I) -> Self {
+        Self {
+            iter,
+            counter: 0,
+            peeked: None,
+        }
+    }
+
+    fn peek(&mut self) -> Option<&I::Item> {
+        self.peeked.get_or_insert_with(|| self.iter.next()).as_ref()
+    }
+
+    fn get_count(&self) -> usize {
+        self.counter
+    }
+
+    fn reset_count(&mut self) {
+        self.counter = 0;
     }
 }
 
@@ -440,13 +527,15 @@ mod tests {
         let reader = BufReader::new(bin_content);
         let bytes = reader.bytes();
 
-        let disassemble_bytes = bytes
+        let mut disassemble_bytes = bytes
             .enumerate()
             .filter_map(|(index, result)| match result {
                 Ok(byte) => Some((Address(index as u16), byte)),
                 Err(_) => None,
-            });
-        let disassembly = disassemble(&mut disassemble_bytes.peekable())?;
+            })
+            .peekable();
+
+        let disassembly = disassemble(&mut disassemble_bytes)?;
 
         Ok(disassembly)
     }

@@ -1,22 +1,22 @@
 use std::fmt::Formatter;
 
 pub enum Register {
-    Al,
-    Cl,
-    Dl,
-    Bl,
-    Ah,
-    Ch,
-    Dh,
-    Bh,
-    Ax,
-    Cx,
-    Dx,
-    Bx,
-    Sp,
-    Bp,
-    Si,
-    Di,
+    Al = 0,
+    Cl = 1,
+    Dl = 2,
+    Bl = 3,
+    Ah = 4,
+    Ch = 5,
+    Dh = 6,
+    Bh = 7,
+    Ax = 8,
+    Cx = 9,
+    Dx = 10,
+    Bx = 11,
+    Sp = 12,
+    Bp = 13,
+    Si = 14,
+    Di = 15,
 }
 
 impl std::fmt::Display for Register {
