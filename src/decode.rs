@@ -149,7 +149,7 @@ macro_rules! decode_jump {
 
         Ok(Instruction::$variant {
             sz: $bytes.get_count() as u8,
-            ip_increment,
+            ip_increment: ip_increment as i8,
         })
     }};
 }

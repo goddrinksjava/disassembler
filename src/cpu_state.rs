@@ -28,12 +28,20 @@ impl CpuStateFlags {
         }
     }
 
+    pub fn get_zero_flag(&self) -> bool {
+        (self.flags & Self::ZERO_FLAG_MASK) != 0
+    }
+
     pub fn set_sign_flag(&mut self, v: bool) {
         if v {
             self.flags |= Self::SIGN_FLAG_MASK;
         } else {
             self.flags &= !Self::SIGN_FLAG_MASK;
         }
+    }
+
+    pub fn get_sign_flag(&self) -> bool {
+        (self.flags & Self::SIGN_FLAG_MASK) != 0
     }
 }
 
@@ -103,6 +111,7 @@ impl<'a> CpuState<'a> {
             instruction, self.instruction_pointer
         );
 
+        let previous_instruction_pointer = self.instruction_pointer;
         self.instruction_pointer += instruction.get_size() as u16;
 
         match instruction {
@@ -200,7 +209,12 @@ impl<'a> CpuState<'a> {
             Instruction::Jp { .. } => todo!(),
             Instruction::Jo { .. } => todo!(),
             Instruction::Js { .. } => todo!(),
-            Instruction::Jne { .. } => todo!(),
+            Instruction::Jne { ip_increment, .. } => {
+                if self.flags.get_zero_flag() == false {
+                    self.instruction_pointer =
+                        self.instruction_pointer.wrapping_add(ip_increment as u16);
+                }
+            }
             Instruction::Jnl { .. } => todo!(),
             Instruction::Jnle { .. } => todo!(),
             Instruction::Jnb { .. } => todo!(),
@@ -214,7 +228,10 @@ impl<'a> CpuState<'a> {
             Instruction::Jcxz { .. } => todo!(),
         }
 
-        println!();
+        println!(
+            "; ip:0x{:x} -> ip:0x{:x}",
+            previous_instruction_pointer, self.instruction_pointer
+        );
         Ok(())
     }
 

@@ -6,26 +6,26 @@ pub enum Instruction {
     Add { sz: u8, dst: Operand, src: Operand },
     Sub { sz: u8, dst: Operand, src: Operand },
     Cmp { sz: u8, dst: Operand, src: Operand },
-    Je { sz: u8, ip_increment: u8 },
-    Jl { sz: u8, ip_increment: u8 },
-    Jle { sz: u8, ip_increment: u8 },
-    Jb { sz: u8, ip_increment: u8 },
-    Jbe { sz: u8, ip_increment: u8 },
-    Jp { sz: u8, ip_increment: u8 },
-    Jo { sz: u8, ip_increment: u8 },
-    Js { sz: u8, ip_increment: u8 },
-    Jne { sz: u8, ip_increment: u8 },
-    Jnl { sz: u8, ip_increment: u8 },
-    Jnle { sz: u8, ip_increment: u8 },
-    Jnb { sz: u8, ip_increment: u8 },
-    Jnbe { sz: u8, ip_increment: u8 },
-    Jnp { sz: u8, ip_increment: u8 },
-    Jno { sz: u8, ip_increment: u8 },
-    Jns { sz: u8, ip_increment: u8 },
-    Loop { sz: u8, ip_increment: u8 },
-    Loopz { sz: u8, ip_increment: u8 },
-    Loopnz { sz: u8, ip_increment: u8 },
-    Jcxz { sz: u8, ip_increment: u8 },
+    Je { sz: u8, ip_increment: i8 },
+    Jl { sz: u8, ip_increment: i8 },
+    Jle { sz: u8, ip_increment: i8 },
+    Jb { sz: u8, ip_increment: i8 },
+    Jbe { sz: u8, ip_increment: i8 },
+    Jp { sz: u8, ip_increment: i8 },
+    Jo { sz: u8, ip_increment: i8 },
+    Js { sz: u8, ip_increment: i8 },
+    Jne { sz: u8, ip_increment: i8 },
+    Jnl { sz: u8, ip_increment: i8 },
+    Jnle { sz: u8, ip_increment: i8 },
+    Jnb { sz: u8, ip_increment: i8 },
+    Jnbe { sz: u8, ip_increment: i8 },
+    Jnp { sz: u8, ip_increment: i8 },
+    Jno { sz: u8, ip_increment: i8 },
+    Jns { sz: u8, ip_increment: i8 },
+    Loop { sz: u8, ip_increment: i8 },
+    Loopz { sz: u8, ip_increment: i8 },
+    Loopnz { sz: u8, ip_increment: i8 },
+    Jcxz { sz: u8, ip_increment: i8 },
 }
 
 impl Instruction {
@@ -140,65 +140,65 @@ impl std::fmt::Display for Instruction {
             Instruction::Cmp { dst, src, .. } => {
                 write!(f, "cmp {dst}, {src}")
             }
-            Instruction::Je { ip_increment, .. } => {
-                write!(f, "je {ip_increment}")
+            Instruction::Je { ip_increment, sz } => {
+                write!(f, "je ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jl { ip_increment, .. } => {
-                write!(f, "jl {ip_increment}")
+            Instruction::Jl { ip_increment, sz } => {
+                write!(f, "jl ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jle { ip_increment, .. } => {
-                write!(f, "jle {ip_increment}")
+            Instruction::Jle { ip_increment, sz } => {
+                write!(f, "jle ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jb { ip_increment, .. } => {
-                write!(f, "jb {ip_increment}")
+            Instruction::Jb { ip_increment, sz } => {
+                write!(f, "jb ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jbe { ip_increment, .. } => {
-                write!(f, "jbe {ip_increment}")
+            Instruction::Jbe { ip_increment, sz } => {
+                write!(f, "jbe ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jp { ip_increment, .. } => {
-                write!(f, "jp {ip_increment}")
+            Instruction::Jp { ip_increment, sz } => {
+                write!(f, "jp ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jo { ip_increment, .. } => {
-                write!(f, "jo {ip_increment}")
+            Instruction::Jo { ip_increment, sz } => {
+                write!(f, "jo ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Js { ip_increment, .. } => {
-                write!(f, "js {ip_increment}")
+            Instruction::Js { ip_increment, sz } => {
+                write!(f, "js ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jne { ip_increment, .. } => {
-                write!(f, "jne {ip_increment}")
+            Instruction::Jne { ip_increment, sz } => {
+                write!(f, "jne ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jnl { ip_increment, .. } => {
-                write!(f, "jnl {ip_increment}")
+            Instruction::Jnl { ip_increment, sz } => {
+                write!(f, "jnl ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jnle { ip_increment, .. } => {
-                write!(f, "jnle {ip_increment}")
+            Instruction::Jnle { ip_increment, sz } => {
+                write!(f, "jnle ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jnb { ip_increment, .. } => {
-                write!(f, "jnb {ip_increment}")
+            Instruction::Jnb { ip_increment, sz } => {
+                write!(f, "jnb ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jnbe { ip_increment, .. } => {
-                write!(f, "jnbe {ip_increment}")
+            Instruction::Jnbe { ip_increment, sz } => {
+                write!(f, "jnbe ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jnp { ip_increment, .. } => {
-                write!(f, "jnp {ip_increment}")
+            Instruction::Jnp { ip_increment, sz } => {
+                write!(f, "jnp ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jno { ip_increment, .. } => {
-                write!(f, "jno {ip_increment}")
+            Instruction::Jno { ip_increment, sz } => {
+                write!(f, "jno ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jns { ip_increment, .. } => {
-                write!(f, "jns {ip_increment}")
+            Instruction::Jns { ip_increment, sz } => {
+                write!(f, "jns ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Loop { ip_increment, .. } => {
-                write!(f, "loop {ip_increment}")
+            Instruction::Loop { ip_increment, sz } => {
+                write!(f, "loop ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Loopz { ip_increment, .. } => {
-                write!(f, "loopz {ip_increment}")
+            Instruction::Loopz { ip_increment, sz } => {
+                write!(f, "loopz ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Loopnz { ip_increment, .. } => {
-                write!(f, "loopnz {ip_increment}")
+            Instruction::Loopnz { ip_increment, sz } => {
+                write!(f, "loopnz ${}", (ip_increment) + (*sz as i8))
             }
-            Instruction::Jcxz { ip_increment, .. } => {
-                write!(f, "jcxz {ip_increment}")
+            Instruction::Jcxz { ip_increment, sz } => {
+                write!(f, "jcxz ${}", (ip_increment) + (*sz as i8))
             }
         }
     }
@@ -324,4 +324,3 @@ impl std::fmt::Display for Jump {
         }
     }
 }
-
